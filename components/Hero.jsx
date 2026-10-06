@@ -15,100 +15,157 @@ export default function Hero() {
   const trailRef = useRef(null);
   const lettersRef = useRef([]);
   const statsRef = useRef([]);
+  const introTextRef = useRef(null);
 
   useLayoutEffect(() => {
     gsap.registerPlugin(ScrollTrigger);
 
+    // Lock scroll during intro animation
+    document.body.style.overflow = "hidden";
+
     const ctx = gsap.context(() => {
       const carElement = carRef.current;
+      const introText = introTextRef.current;
       if (!carElement) return;
 
       const roadWidth = window.innerWidth;
       const carWidth = carElement.offsetWidth || 150; 
       
-      // Car is fully visible at the start (flush with left edge)
       const startX = 0;
       const endX = roadWidth;
-      
-      gsap.set(carElement, { x: startX });
-      
-      const tl = gsap.timeline({
-        scrollTrigger: {
-          trigger: containerRef.current,
-          start: "top top",
-          end: "bottom bottom", 
-          scrub: 1, // Smooth interpolation so motion feels natural and fluid
+      const centerX = (roadWidth / 2) - (carWidth / 2);
+
+      // 1. SET INITIAL INTRO STATE
+      gsap.set(carElement, { 
+        x: centerX, 
+        rotation: -90, // vertical, pointing up
+        scale: 1.3,    // gentle zoom, prevents vertical clipping
+        y: 0
+      });
+
+      // 2. INTRO TIMELINE
+      const introTl = gsap.timeline({
+        onComplete: () => {
+          // Unlock scroll when animation finishes
+          document.body.style.overflow = "";
+          document.body.style.overflowX = "hidden"; // Keep horizontal scroll hidden
+          setupScrollTrigger();
         }
       });
 
-      function updateScrollState() {
-        const currentX = gsap.getProperty(carElement, "x");
-        
-        // Native DOM style updates
-        const trailWidth = Math.max(0, currentX + (carWidth / 2));
-        if (trailRef.current) {
-          trailRef.current.style.width = trailWidth + 'px';
+      // Text moves up, scales slightly, and fades out
+      introTl.to(introText, {
+        y: "-15vh",
+        scale: 1.05,
+        opacity: 0,
+        duration: 1.5,
+        ease: "expo.inOut",
+        delay: 0.6
+      });
+
+      // Car rotates clockwise, scales down, and glides to startX
+      introTl.to(carElement, {
+        x: startX,
+        rotation: 0, 
+        scale: 1,
+        duration: 2.4,
+        ease: "expo.inOut"
+      }, "-=1.1"); // Beautiful overlap with the text exit
+
+      // Trail grows out from the left to meet the car as it settles
+      introTl.to(trailRef.current, {
+        width: (carWidth / 2),
+        duration: 1.5,
+        ease: "expo.out"
+      }, "-=1.2"); // Starts as the car is halfway through its journey to the left edge
+
+      // 3. SCROLL LOGIC (runs after intro)
+      function setupScrollTrigger() {
+        function updateScrollState() {
+          const currentX = gsap.getProperty(carElement, "x");
+          
+          const trailWidth = Math.max(0, currentX + (carWidth / 2));
+          if (trailRef.current) {
+            trailRef.current.style.width = trailWidth + 'px';
+          }
+
+          lettersRef.current.forEach((letter) => {
+            if (letter) {
+              const letterRect = letter.getBoundingClientRect();
+              const letterCenterX = letterRect.left + letterRect.width / 2;
+              
+              if (currentX + (carWidth / 2) >= letterCenterX) {
+                letter.style.opacity = 1;
+              } else {
+                letter.style.opacity = 0; 
+              }
+            }
+          });
         }
 
-        // Text reveal logic
-        lettersRef.current.forEach((letter) => {
-          if (letter) {
-            const letterRect = letter.getBoundingClientRect();
-            const letterCenterX = letterRect.left + letterRect.width / 2;
+        // Initialize immediately
+        updateScrollState();
+
+        const tl = gsap.timeline({
+          scrollTrigger: {
+            trigger: containerRef.current,
+            start: "top top",
+            end: "bottom bottom",
+            scrub: 1,
+          }
+        });
+
+        tl.to(carElement, {
+          x: endX,
+          ease: "none",
+          onUpdate: updateScrollState
+        }, 0);
+
+        // Stats Independent ScrollTriggers
+        statsRef.current.forEach((stat, index) => {
+          if (stat) {
+            const startPercent = 10 + (index * 22); 
+            const endPercent = startPercent + 10;   
             
-            if (currentX + (carWidth / 2) >= letterCenterX) {
-              letter.style.opacity = 1;
-            } else {
-              letter.style.opacity = 0; 
-            }
+            gsap.fromTo(stat, 
+              { opacity: 0, y: 30 },
+              { 
+                opacity: 1, 
+                y: 0,
+                ease: "none",
+                scrollTrigger: {
+                  trigger: containerRef.current,
+                  start: `top+=${startPercent}% top`,
+                  end: `top+=${endPercent}% top`,
+                  scrub: true,
+                }
+              }
+            );
           }
         });
       }
 
-      // Initialize trail and text instantly before any scroll
-      updateScrollState();
-
-      tl.to(carElement, {
-        x: endX, // Prefer transform properties
-        ease: "none",
-        onUpdate: updateScrollState
-      }, 0);
-
-      // 3. STATS ANIMATION (Independent ScrollTriggers)
-      statsRef.current.forEach((stat, index) => {
-        if (stat) {
-          // Space out the appearance of the stats throughout the scroll distance
-          const startPercent = 10 + (index * 22); 
-          const endPercent = startPercent + 10;   
-          
-          gsap.fromTo(stat, 
-            { opacity: 0, y: 30 },
-            { 
-              opacity: 1, 
-              y: 0,
-              ease: "none",
-              scrollTrigger: {
-                trigger: containerRef.current,
-                start: `top+=${startPercent}% top`,
-                end: `top+=${endPercent}% top`,
-                scrub: true,
-              }
-            }
-          );
-        }
-      });
-
     }, containerRef);
 
-    return () => ctx.revert();
+    return () => {
+      document.body.style.overflow = "";
+      ctx.revert();
+    };
   }, []);
 
   return (
     <section ref={containerRef} className="relative w-full h-[400vh] bg-[#f8f9fa]">
       
-      {/* Occupy the first screen (above the fold) */}
+      {/* Sticky Track Container */}
       <div className="sticky top-0 w-full h-screen flex flex-col justify-center items-center overflow-hidden">
         
+        {/* Intro Text Overlay */}
+        <div ref={introTextRef} className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
+          <h1 className="text-[12vw] md:text-[15vw] font-black text-white tracking-tighter drop-shadow-2xl opacity-100">
+            ITZFIZZ
+          </h1>
+        </div>
+
         {/* Impact metrics / statistics */}
         <HeroStats statsRef={statsRef} />
 
@@ -120,7 +177,6 @@ export default function Hero() {
             style={{ width: '0px' }}
           />
 
-          {/* Letter-spaced headline */}
           <div className="absolute left-0 top-0 w-full h-full flex items-center justify-center gap-2 md:gap-4 z-20 pointer-events-none px-4">
             {textToReveal.map((char, i) => (
               <span 
